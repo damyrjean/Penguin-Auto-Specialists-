@@ -2,10 +2,22 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="refresh" content="0; url=web/customer/">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Penguin Auto Specialists</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="web/shared/styles.css">
 </head>
 <body>
-  <a href="web/customer/">Go to the customer dashboard</a>
+  <main class="landing">
+    <div class="landing-box">
+      <h1>Penguin Auto Specialists</h1>
+      <p class="muted">Shop management system. Choose a view.</p>
+      <div class="landing-cards">
+        <a class="card" href="web/customer/"><h2>Customer</h2><p class="muted">Book service, track a repair, approve work, and see past invoices.</p></a>
+        <a class="card" href="web/owner/"><h2>Shop Owner</h2><p class="muted">See open repairs, assign technicians, order parts, and create invoices.</p></a>
+      </div>
+      <p class="muted" style="margin-top:16px"><a class="link" href="web/customer/register.html">Create a customer account</a></p>
+    </div>
+  </main>
 </body>
 </html>
