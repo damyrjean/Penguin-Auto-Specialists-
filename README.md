@@ -18,12 +18,12 @@ One system for Penguin Auto Specialists: a website and a mobile app, each with a
 - `feature/*` – one branch per feature, merged into `development` by pull request
 
 ## Progress
-- [x] Customer website – Dashboard page (`web/customer/`), static HTML/CSS/JS using sample data
-- [ ] Customer website – Book Appointment, Service History, Vehicle Profile
-- [ ] Owner web dashboard
+- [x] Customer website: Dashboard, My Repair (photo approvals), Book Appointment, Service History, Vehicle Profile, Create Account (`web/customer/`)
+- [x] Owner website: Overview, Repairs, Customers, Vehicles, Employees, Parts, Services, Transactions, Settings (`web/owner/`)
 - [ ] Database schema (Supabase)
-- [ ] Express API
+- [ ] Express API and login (replace `web/shared/store.js`, which saves sample data in the browser)
+- [ ] React.js version of the website
 - [ ] Mobile apps (Expo)
 
 ## Run it
-Open `web/customer/index.html` in a browser, or turn on GitHub Pages (Settings → Pages → deploy from `main`, root folder).
+Serve the repo root with any static server, or turn on GitHub Pages (Settings → Pages → deploy from `main`, root folder).
