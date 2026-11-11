@@ -42,12 +42,12 @@ const PA = (() => {
       { id: 6, name: "Diagnostic Inspection", price: 110, hours: 1, checks: ["Code scan", "Road test", "Written findings"] }
     ],
     parts: [
-      { id: 1, name: "Front Brake Pad Set", sku: "BP-1140", stock: 6, reorder: 4, cost: 38, price: 72, onOrder: 0 },
-      { id: 2, name: "Front Brake Rotor", sku: "BR-2207", stock: 3, reorder: 4, cost: 46, price: 89, onOrder: 0 },
-      { id: 3, name: "Oil Filter", sku: "OF-0031", stock: 24, reorder: 10, cost: 4, price: 11, onOrder: 0 },
-      { id: 4, name: "Cabin Air Filter", sku: "CF-0310", stock: 9, reorder: 5, cost: 9, price: 28, onOrder: 0 },
-      { id: 5, name: "Serpentine Belt", sku: "SB-4420", stock: 2, reorder: 3, cost: 21, price: 54, onOrder: 4 },
-      { id: 6, name: "Wiper Blade Pair", sku: "WB-1800", stock: 14, reorder: 6, cost: 12, price: 32, onOrder: 0 }
+      { id: 1, name: "Front Brake Pad Set", sku: "BP-1140", stock: 6, reorder: 4, cost: 38, price: 72 },
+      { id: 2, name: "Front Brake Rotor", sku: "BR-2207", stock: 3, reorder: 4, cost: 46, price: 89 },
+      { id: 3, name: "Oil Filter", sku: "OF-0031", stock: 24, reorder: 10, cost: 4, price: 11 },
+      { id: 4, name: "Cabin Air Filter", sku: "CF-0310", stock: 9, reorder: 5, cost: 9, price: 28 },
+      { id: 5, name: "Serpentine Belt", sku: "SB-4420", stock: 2, reorder: 3, cost: 21, price: 54 },
+      { id: 6, name: "Wiper Blade Pair", sku: "WB-1800", stock: 14, reorder: 6, cost: 12, price: 32 }
     ],
     repairs: [
       { id: 4913, customerId: 98421, vin: "2HGFC2F59JH500002", status: "In Progress", techId: 2, concern: "Grinding noise when braking", date: iso(0), time: "8:30 AM", services: [4], parts: [],
@@ -60,9 +60,9 @@ const PA = (() => {
       { id: 4902, customerId: 98424, vin: "5NPD84LF1LH500005", status: "Completed", techId: 4, concern: "", date: iso(-3), time: "2:00 PM", services: [2], parts: [{ partId: 3, qty: 1 }], approvals: [] }
     ],
     transactions: [
-      { id: 7001, repairId: 4890, date: iso(-64), method: "Card", status: "Paid" },
-      { id: 7002, repairId: 4851, date: iso(-132), method: "Cash", status: "Paid" },
-      { id: 7003, repairId: 4902, date: iso(-3), method: "Card", status: "Paid" }
+      { id: 7001, repairId: 4890, date: iso(-64), status: "Paid" },
+      { id: 7002, repairId: 4851, date: iso(-132), status: "Paid" },
+      { id: 7003, repairId: 4902, date: iso(-3), status: "Paid" }
     ]
   });
 

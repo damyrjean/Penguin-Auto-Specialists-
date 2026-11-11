@@ -277,7 +277,6 @@ input[type=checkbox] { width: 16px; height: 16px; }
 .dialog { border: 0; border-radius: 12px; padding: 22px; width: min(620px, 94vw); margin: auto; }
 .dialog::backdrop { background: rgba(15, 23, 42, .55); }
 .dialog-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
-.toast { position: fixed; right: 20px; bottom: 20px; background: var(--sidebar); color: #fff; padding: 12px 16px; border-radius: 8px; font-size: 13px; z-index: 30; }
 .landing { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
 .landing-box { width: min(720px, 100%); }
 .landing-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 20px; }
@@ -286,7 +285,6 @@ input[type=checkbox] { width: 16px; height: 16px; }
 .sidebar .nav { overflow-y: auto; }
 .switch-link { color: var(--sidebar-text); font-size: 12px; margin-top: 10px; display: block; }
 .switch-link:hover { color: #fff; }
-.grow { flex: 1; min-width: 0; }
 .sidebar { overflow-y: auto; }
 
 @media (max-width: 960px) { .stats { grid-template-columns: 1fr 1fr; } .grid-even { grid-template-columns: 1fr; } }
