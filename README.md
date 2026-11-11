@@ -20,7 +20,8 @@ One system for Penguin Auto Specialists: a website and a mobile app, each with a
 ## Progress
 - [x] Customer website: Dashboard, My Repair (photo approvals), Book Appointment, Service History, Vehicle Profile, Create Account (`web/customer/`)
 - [x] Owner website: Overview, Repairs, Customers, Vehicles, Employees, Parts, Services, Transactions, Settings (`web/owner/`)
-- [ ] Database schema (Supabase)
+- [x] Database schema (`db/`, see `db/README.md`)
+- [ ] Load schema into Supabase
 - [ ] Express API and login (replace `web/shared/store.js`, which saves sample data in the browser)
 - [ ] React.js version of the website
 - [ ] Mobile apps (Expo)
