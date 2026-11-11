@@ -21,11 +21,17 @@ One system for Penguin Auto Specialists: a website and a mobile app, each with a
 - [x] Customer website: Dashboard, My Repair (photo approvals), Book Appointment, Service History, Vehicle Profile, Create Account (`web/customer/`)
 - [x] Owner website: Overview, Repairs, Customers, Vehicles, Employees, Parts, Services, Transactions, Settings (`web/owner/`)
 - [x] Database schema (`db/`, see `db/README.md`)
-- [ ] Load schema into Supabase
+- [x] Load schema into Supabase
 - [x] Express API and login (`api/`, see `api/README.md`)
-- [ ] Connect the website to the API (replace `web/shared/store.js`, which saves sample data in the browser)
+- [x] Connect the website to the API (`web/shared/api.js`), with customer and owner logins
 - [ ] React.js version of the website
 - [ ] Mobile apps (Expo)
 
 ## Run it
-Serve the repo root with any static server, or turn on GitHub Pages (Settings → Pages → deploy from `main`, root folder).
+1. Set up the database (see `db/README.md`).
+2. Start the API (see `api/README.md`): `cd api`, `npm install`, `npm run dev`.
+3. Open http://localhost:3000 in your browser. The API also serves the website.
+
+Logins:
+- Customer: go to Create Account. Sample customers (like user@example.com) can sign up with their email to set a password.
+- Owner: the `OWNER_PASSWORD` in `api/.env`.

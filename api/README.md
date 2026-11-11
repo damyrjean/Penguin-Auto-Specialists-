@@ -24,6 +24,7 @@ Node + Express API that connects the website and mobile app to the Supabase data
    npm run dev
    ```
 5. Open http://localhost:3000/api/health in a browser. You should see `{"ok":true}`.
+6. Open http://localhost:3000 to use the website. The API serves the `web/` folder too.
 
 ## How login works
 1. The website calls a login route and gets back a `token`.

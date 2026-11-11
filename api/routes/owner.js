@@ -89,7 +89,9 @@ router.patch("/repairs/:id", async (req, res) => {
 
 // POST /api/owner/repairs/4/services  { service_id }
 router.post("/repairs/:id/services", async (req, res) => {
-  await query("insert into repair_services (repair_id, service_id) values ($1, $2)",
+  // "on conflict do nothing" skips it if the service is already on the repair
+  await query(
+    "insert into repair_services (repair_id, service_id) values ($1, $2) on conflict do nothing",
     [req.params.id, req.body.service_id]);
   res.status(201).json({ added: true });
 });
@@ -97,7 +99,14 @@ router.post("/repairs/:id/services", async (req, res) => {
 // POST /api/owner/repairs/4/parts  { part_id, qty }  - also takes the parts out of stock
 router.post("/repairs/:id/parts", async (req, res) => {
   const qty = req.body.qty || 1;
-  await query("insert into repair_parts (repair_id, part_id, qty) values ($1, $2, $3)",
+  const [part] = await query("select stock from parts where id = $1", [req.body.part_id]);
+  if (!part) return res.status(404).json({ error: "Part not found" });
+  if (part.stock < qty) return res.status(400).json({ error: "Not enough in stock" });
+
+  // If the part is already on the repair, add to its quantity instead
+  await query(
+    `insert into repair_parts (repair_id, part_id, qty) values ($1, $2, $3)
+     on conflict (repair_id, part_id) do update set qty = repair_parts.qty + $3`,
     [req.params.id, req.body.part_id, qty]);
   await query("update parts set stock = stock - $1 where id = $2", [qty, req.body.part_id]);
   res.status(201).json({ added: true });

@@ -34,8 +34,12 @@ async function getRepairDetails(repair) {
 const REPAIR_LIST_SQL = `
   select r.*,
          c.first_name || ' ' || c.last_name as customer_name,
+         c.phone as customer_phone,
          v.year || ' ' || v.make || ' ' || v.model as vehicle_name,
-         e.name as technician_name
+         v.plate as vehicle_plate,
+         e.name as technician_name,
+         exists (select 1 from approvals a
+                 where a.repair_id = r.id and a.status = 'pending') as waiting_approval
   from repairs r
   join customers c on c.id = r.customer_id
   join vehicles v on v.id = r.vehicle_id
