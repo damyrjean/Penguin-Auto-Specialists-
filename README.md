@@ -25,12 +25,13 @@ One system for Penguin Auto Specialists: a website and a mobile app, each with a
 - [x] Express API and login (`api/`, see `api/README.md`)
 - [x] Connect the website to the API (`web/shared/api.js`), with customer and owner logins
 - [ ] React.js version of the website
-- [ ] Mobile apps (Expo)
+- [x] Mobile app (Expo), customer and owner views (`mobile/`, see `mobile/README.md`)
 
 ## Run it
 1. Set up the database (see `db/README.md`).
 2. Start the API (see `api/README.md`): `cd api`, `npm install`, `npm run dev`.
 3. Open http://localhost:3000 in your browser. The API also serves the website.
+4. Mobile app: `cd mobile`, `npm install`, `npx expo start`, then scan the QR code with Expo Go (see `mobile/README.md`).
 
 Logins:
 - Customer: go to Create Account. Sample customers (like user@example.com) can sign up with their email to set a password.
