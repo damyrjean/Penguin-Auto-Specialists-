@@ -1,7 +1,7 @@
 // Owner website.
 // This is one HTML page. The part of the URL after # picks the section,
-// for example #overview, #parts, or #repair/4913.
-// All data comes from PA (web/shared/store.js).
+// for example #overview, #parts, or #repair/4.
+// Data comes from the API through PA.api (web/shared/api.js).
 
 const root = document.getElementById("root");
 const icons = PA.icons;
@@ -10,28 +10,66 @@ const money = PA.money;
 
 const OPEN = ["Requested", "Scheduled", "In Progress", "Ready"];
 
+// Filled in by loadData() from the API
+let data = { repairs: [], customers: [], vehicles: [], employees: [], parts: [], services: [], transactions: [] };
+
+
+// ---------- Load from the API ----------
+
+// Shortcut for owner API calls
+function ownerApi(method, path, body) {
+  return PA.api(method, "/owner" + path, body, "owner");
+}
+
+async function loadData() {
+  const names = ["repairs", "customers", "vehicles", "employees", "parts", "services", "transactions"];
+  const results = await Promise.all(names.map(name => ownerApi("GET", "/" + name)));
+  names.forEach((name, i) => data[name] = results[i]);
+}
+
 
 // ---------- Lookups ----------
 
-function customerFor(repair) {
-  return PA.by(PA.db.customers, "id", repair.customerId);
-}
-
-function vehicleFor(repair) {
-  return PA.by(PA.db.vehicles, "vin", repair.vin);
+function findRepair(id) {
+  return data.repairs.find(r => r.id === id);
 }
 
 function techName(repair) {
-  const tech = PA.by(PA.db.employees, "id", repair.techId);
-  return tech ? tech.name : "Unassigned";
+  return repair.technician_name || "Unassigned";
 }
 
-function hasPendingApproval(repair) {
-  return repair.approvals.some(a => a.status === "pending");
+
+// ---------- Owner login ----------
+
+function loginPage() {
+  root.innerHTML = `
+    <main class="center-page">
+      <section class="card">
+        <h1>Owner Log In</h1>
+        <p class="muted">Penguin Auto Specialists</p>
+        <form class="stack" style="margin-top:16px;gap:12px" onsubmit="logIn(event)">
+          <label class="field">Password<input name="password" type="password"></label>
+          <p class="error" id="error"></p>
+          <button class="btn">Log In</button>
+        </form>
+      </section>
+    </main>`;
 }
 
-function findRepair(id) {
-  return PA.by(PA.db.repairs, "id", id);
+async function logIn(event) {
+  event.preventDefault();
+  try {
+    const result = await PA.api("POST", "/owner/login", { password: event.target.password.value });
+    PA.setToken("owner", result.token);
+    showPage();
+  } catch (e) {
+    document.getElementById("error").textContent = e.message;
+  }
+}
+
+function logOut() {
+  PA.logout("owner");
+  loginPage();
 }
 
 
@@ -74,7 +112,7 @@ function drawPage(active, title, subtitle, content) {
             <div class="user-id">Administrator</div>
           </div>
         </div>
-        <a class="switch-link" href="../customer/">Switch to customer view</a>
+        <a class="switch-link" href="#" onclick="logOut()">Log out</a>
       </aside>
       <main class="main">
         <header class="page-header">
@@ -109,13 +147,13 @@ function makeTable(headers, rows, emptyText) {
 function repairRows(list) {
   let rows = "";
   for (const r of list) {
-    const waiting = hasPendingApproval(r) ? ` <span class="tag tag-amber">Awaiting customer</span>` : "";
+    const waiting = r.waiting_approval ? ` <span class="tag tag-amber">Awaiting customer</span>` : "";
     rows += `
       <tr>
         <td><a class="link" href="#repair/${r.id}">#${r.id}</a></td>
-        <td>${esc(PA.customerName(customerFor(r)))}</td>
-        <td>${esc(PA.vehicleName(vehicleFor(r)))}</td>
-        <td>${PA.shortDate(r.date)}, ${r.time}</td>
+        <td>${esc(r.customer_name)}</td>
+        <td>${esc(r.vehicle_name)}</td>
+        <td>${PA.shortDate(r.appt_date)}, ${PA.time(r.appt_time)}</td>
         <td>${esc(techName(r))}</td>
         <td>${PA.statusTag(r.status)}${waiting}</td>
       </tr>`;
@@ -125,23 +163,34 @@ function repairRows(list) {
 
 const REPAIR_HEADERS = ["RO", "Customer", "Vehicle", "Date", "Technician", "Status"];
 
+// Runs an API call, shows any error, then reloads the page
+async function save(apiCall, message) {
+  try {
+    await apiCall;
+    if (message) alert(message);
+  } catch (e) {
+    alert(e.message);
+  }
+  showPage();
+}
+
 
 // ---------- Overview ----------
 
 function overviewPage() {
-  const open = PA.db.repairs.filter(r => OPEN.includes(r.status));
-  open.sort((a, b) => a.date.localeCompare(b.date));
+  const open = data.repairs.filter(r => OPEN.includes(r.status));
+  open.sort((a, b) => a.appt_date.localeCompare(b.appt_date));
   const requests = open.filter(r => r.status === "Requested");
-  const lowStock = PA.db.parts.filter(p => p.stock <= p.reorder);
+  const lowStock = data.parts.filter(p => p.stock <= p.reorder);
 
   let requestRows = "";
   for (const r of requests) {
     requestRows += `
       <tr>
         <td><a class="link" href="#repair/${r.id}">#${r.id}</a></td>
-        <td>${esc(PA.customerName(customerFor(r)))}</td>
-        <td>${esc(PA.vehicleName(vehicleFor(r)))}</td>
-        <td>${PA.shortDate(r.date)}, ${r.time}</td>
+        <td>${esc(r.customer_name)}</td>
+        <td>${esc(r.vehicle_name)}</td>
+        <td>${PA.shortDate(r.appt_date)}, ${PA.time(r.appt_time)}</td>
         <td class="right"><button class="btn btn-sm" onclick="acceptRequest(${r.id})">Accept</button></td>
       </tr>`;
   }
@@ -165,69 +214,65 @@ function overviewPage() {
 }
 
 function acceptRequest(id) {
-  findRepair(id).status = "Scheduled";
-  PA.save();
-  showPage();
+  save(ownerApi("PATCH", "/repairs/" + id, { status: "Scheduled" }));
 }
 
 
 // ---------- Repairs list ----------
 
 function repairsPage() {
-  const list = PA.db.repairs.slice();
-  list.sort((a, b) => b.date.localeCompare(a.date));
   drawPage("repairs", "Repairs", "Every repair order, newest first.", `
-    <section class="card">${makeTable(REPAIR_HEADERS, repairRows(list), "No repairs yet.")}</section>`);
+    <section class="card">${makeTable(REPAIR_HEADERS, repairRows(data.repairs), "No repairs yet.")}</section>`);
 }
 
 
 // ---------- One repair order ----------
 
-function repairDetailPage(id) {
-  const r = findRepair(id);
-  if (!r) {
+async function repairDetailPage(id) {
+  let r;
+  try {
+    r = await ownerApi("GET", "/repairs/" + id);
+  } catch (e) {
     drawPage("repairs", "Repair not found", `<a class="link" href="#repairs">Back to repairs</a>`, "");
     return;
   }
 
-  const customer = customerFor(r);
-  const vehicle = vehicleFor(r);
-  const totals = PA.totals(r);
-  const invoice = PA.by(PA.db.transactions, "repairId", r.id);
+  const invoice = data.transactions.find(t => t.repair_id === r.id);
   const finished = r.status === "Completed" || r.status === "Cancelled";
+  const pending = r.approvals.some(a => a.status === "pending");
 
   // Status and technician
   let statusBox = PA.statusTag(r.status);
   let techBox = esc(techName(r));
   if (!finished) {
     let statusOptions = "";
-    for (const s of OPEN) {
+    for (const s of [...OPEN, "Cancelled"]) {
       statusOptions += `<option ${s === r.status ? "selected" : ""}>${s}</option>`;
     }
     statusBox = `<select onchange="changeStatus(${r.id}, this.value)">${statusOptions}</select>`;
 
     let techOptions = `<option value="">Unassigned</option>`;
-    for (const e of PA.db.employees) {
-      if (e.role === "Service Advisor") continue;
-      techOptions += `<option value="${e.id}" ${e.id === r.techId ? "selected" : ""}>${esc(e.name)}</option>`;
+    for (const e of data.employees) {
+      if (e.role === "Service Advisor" || !e.active) continue;
+      techOptions += `<option value="${e.id}" ${e.id === r.technician_id ? "selected" : ""}>${esc(e.name)}</option>`;
     }
     techBox = `<select onchange="changeTech(${r.id}, this.value)">${techOptions}</select>`;
   }
 
   // Line items
   let itemRows = "";
-  for (const item of totals.items) {
+  for (const item of PA.lineItems(r)) {
     itemRows += `<tr><td>${esc(item.label)}${item.qty > 1 ? " x " + item.qty : ""}</td><td class="right">${money(item.amount)}</td></tr>`;
   }
 
   let addForms = "";
   if (!finished) {
     let serviceOptions = "";
-    for (const s of PA.db.services) {
+    for (const s of data.services) {
       serviceOptions += `<option value="${s.id}">${esc(s.name)}</option>`;
     }
     let partOptions = "";
-    for (const p of PA.db.parts) {
+    for (const p of data.parts) {
       partOptions += `<option value="${p.id}">${esc(p.name)} (${p.stock} left)</option>`;
     }
     addForms = `
@@ -245,9 +290,10 @@ function repairDetailPage(id) {
     let tag = `<span class="tag tag-amber">Waiting on customer</span>`;
     if (a.status === "approved") tag = `<span class="tag tag-green">Approved</span>`;
     if (a.status === "declined") tag = `<span class="tag tag-red">Declined</span>`;
+    const photo = a.photo_url ? `<img src="${esc(a.photo_url)}" alt="${esc(a.title)}">` : "";
     approvals += `
       <div class="approval">
-        <img src="${esc(a.photo)}" alt="${esc(a.title)}">
+        ${photo}
         <div class="approval-body">
           <div class="row between"><b>${esc(a.title)}</b><span class="price">${money(a.price)}</span></div>
           <p class="muted">${esc(a.note)}</p>
@@ -273,28 +319,28 @@ function repairDetailPage(id) {
   // Invoice buttons
   let invoiceButtons = "";
   if (!invoice) {
-    if (hasPendingApproval(r)) {
+    if (pending) {
       invoiceButtons = `<p class="muted">Waiting on customer approval before invoicing.</p>`;
     } else if (!finished) {
-      invoiceButtons = `<button class="btn" onclick="createInvoice(${r.id})">Generate Invoice</button>`;
+      invoiceButtons = `<button class="btn" onclick="createInvoice(${r.id}, ${r.total})">Generate Invoice</button>`;
     }
   } else {
-    invoiceButtons = `<button class="btn btn-ghost" onclick="PA.showInvoice(findRepair(${r.id}))">View Invoice</button>`;
+    invoiceButtons = `<button class="btn btn-ghost" onclick="viewInvoice(${r.id})">View Invoice</button>`;
     if (invoice.status !== "Paid") {
-      invoiceButtons += ` <button class="btn" onclick="markPaid(${r.id})">Mark as Paid</button>`;
+      invoiceButtons += ` <button class="btn" onclick="markPaid(${r.id}, ${invoice.id})">Mark as Paid</button>`;
     } else {
       invoiceButtons += ` <span class="tag tag-green">Paid</span>`;
     }
   }
 
   drawPage("repairs", `Repair Order #${r.id}`,
-    `${esc(PA.customerName(customer))}, ${esc(customer.phone)}<br>${esc(PA.vehicleName(vehicle))}, ${esc(vehicle.plate)}`, `
+    `${esc(r.customer_name)}, ${esc(r.customer_phone)}<br>${esc(r.vehicle_name)}, ${esc(r.vehicle_plate)}`, `
     <div class="grid">
       <div class="col">
         <section class="card stack">
           <h2>Work Order</h2>
           ${r.concern ? `<p class="muted"><b>Customer concern:</b> ${esc(r.concern)}</p>` : ""}
-          <p class="muted"><b>Appointment:</b> ${PA.date(r.date)}, ${r.time}</p>
+          <p class="muted"><b>Appointment:</b> ${PA.date(r.appt_date)}, ${PA.time(r.appt_time)}</p>
           <div class="form-grid">
             <label class="field">Status${statusBox}</label>
             <label class="field">Technician${techBox}</label>
@@ -314,9 +360,9 @@ function repairDetailPage(id) {
       <section class="card upcoming">
         <h2>Invoice</h2>
         <div class="totals" style="margin:12px 0">
-          <div><span>Subtotal</span><span>${money(totals.subtotal)}</span></div>
-          <div><span>Tax (${PA.db.settings.taxRate}%)</span><span>${money(totals.tax)}</span></div>
-          <div class="grand"><span>Total</span><span>${money(totals.total)}</span></div>
+          <div><span>Subtotal</span><span>${money(r.subtotal)}</span></div>
+          <div><span>Tax (${PA.SHOP.taxRate}%)</span><span>${money(r.tax)}</span></div>
+          <div class="grand"><span>Total</span><span>${money(r.total)}</span></div>
         </div>
         ${invoiceButtons}
       </section>
@@ -324,42 +370,21 @@ function repairDetailPage(id) {
 }
 
 function changeStatus(id, status) {
-  findRepair(id).status = status;
-  PA.save();
-  showPage();
+  save(ownerApi("PATCH", "/repairs/" + id, { status: status }));
 }
 
 function changeTech(id, techId) {
-  findRepair(id).techId = techId === "" ? null : Number(techId);
-  PA.save();
-  showPage();
+  save(ownerApi("PATCH", "/repairs/" + id, { technician_id: techId === "" ? null : Number(techId) }));
 }
 
 function addService(id) {
   const serviceId = Number(document.getElementById("new-service").value);
-  findRepair(id).services.push(serviceId);
-  PA.save();
-  showPage();
+  save(ownerApi("POST", "/repairs/" + id + "/services", { service_id: serviceId }));
 }
 
 function addPart(id) {
-  const repair = findRepair(id);
-  const part = PA.by(PA.db.parts, "id", Number(document.getElementById("new-part").value));
-
-  if (part.stock < 1) {
-    alert("That part is out of stock. Order more on the Parts page.");
-    return;
-  }
-
-  const line = PA.by(repair.parts, "partId", part.id);
-  if (line) {
-    line.qty = line.qty + 1;
-  } else {
-    repair.parts.push({ partId: part.id, qty: 1 });
-  }
-  part.stock = part.stock - 1;
-  PA.save();
-  showPage();
+  const partId = Number(document.getElementById("new-part").value);
+  save(ownerApi("POST", "/repairs/" + id + "/parts", { part_id: partId, qty: 1 }));
 }
 
 function sendApproval(event, id) {
@@ -383,48 +408,39 @@ function sendApproval(event, id) {
     return;
   }
 
-  // Read the photo so it can be saved with the repair
+  // Turn the photo into text so it can be saved in the database
   const reader = new FileReader();
   reader.onload = function () {
-    const repair = findRepair(id);
-    repair.approvals.push({
-      id: repair.approvals.length + 1,
+    save(ownerApi("POST", "/repairs/" + id + "/approvals", {
       title: work,
       note: form.note.value.trim(),
       price: price,
-      status: "pending",
-      photo: reader.result
-    });
-
-    if (PA.save()) {
-      alert("Sent to the customer for approval.");
-    } else {
-      repair.approvals.pop();
-      alert("Could not save. Try a smaller photo.");
-    }
-    showPage();
+      photo_url: reader.result
+    }), "Sent to the customer for approval.");
   };
   reader.readAsDataURL(file);
 }
 
-function createInvoice(id) {
-  PA.db.transactions.push({
-    id: PA.nextId(PA.db.transactions),
-    repairId: id,
-    date: PA.iso(0),
-    status: "Unpaid"
-  });
-  PA.save();
+function createInvoice(id, total) {
+  save(ownerApi("POST", "/transactions", { repair_id: id, amount: total, status: "Unpaid" }));
+}
+
+async function markPaid(repairId, transactionId) {
+  try {
+    await ownerApi("PATCH", "/transactions/" + transactionId, { status: "Paid", date: PA.iso(0) });
+    await ownerApi("PATCH", "/repairs/" + repairId, { status: "Completed" });
+  } catch (e) {
+    alert(e.message);
+  }
   showPage();
 }
 
-function markPaid(id) {
-  const invoice = PA.by(PA.db.transactions, "repairId", id);
-  invoice.status = "Paid";
-  invoice.date = PA.iso(0);
-  findRepair(id).status = "Completed";
-  PA.save();
-  showPage();
+async function viewInvoice(repairId) {
+  try {
+    PA.showInvoice(await ownerApi("GET", "/repairs/" + repairId));
+  } catch (e) {
+    alert(e.message);
+  }
 }
 
 
@@ -432,8 +448,8 @@ function markPaid(id) {
 
 function customersPage() {
   let rows = "";
-  for (const c of PA.db.customers) {
-    const vehicleCount = PA.db.vehicles.filter(v => v.customerId === c.id).length;
+  for (const c of data.customers) {
+    const vehicleCount = data.vehicles.filter(v => v.customer_id === c.id).length;
     rows += `<tr><td>#${c.id}</td><td>${esc(PA.customerName(c))}</td><td>${esc(c.phone)}</td><td>${esc(c.email)}</td><td>${vehicleCount}</td></tr>`;
   }
   drawPage("customers", "Customers", "Everyone with an account.", `
@@ -442,9 +458,9 @@ function customersPage() {
 
 function vehiclesPage() {
   let rows = "";
-  for (const v of PA.db.vehicles) {
-    const owner = PA.by(PA.db.customers, "id", v.customerId);
-    rows += `<tr><td>${esc(PA.vehicleName(v))}</td><td>${esc(v.vin)}</td><td>${esc(v.plate)}</td><td>${esc(PA.customerName(owner))}</td><td class="right">${v.odometer.toLocaleString()} mi</td></tr>`;
+  for (const v of data.vehicles) {
+    const owner = data.customers.find(c => c.id === v.customer_id);
+    rows += `<tr><td>${esc(PA.vehicleName(v))}</td><td>${esc(v.vin)}</td><td>${esc(v.plate)}</td><td>${esc(PA.customerName(owner))}</td><td class="right">${(v.odometer || 0).toLocaleString()} mi</td></tr>`;
   }
   drawPage("vehicles", "Vehicles", "All vehicles on file.", `
     <section class="card">${makeTable(["Vehicle", "VIN", "Plate", "Owner", ">Odometer"], rows, "No vehicles yet.")}</section>`);
@@ -455,8 +471,8 @@ function vehiclesPage() {
 
 function employeesPage() {
   let rows = "";
-  for (const e of PA.db.employees) {
-    const jobs = PA.db.repairs.filter(r => r.techId === e.id && OPEN.includes(r.status)).length;
+  for (const e of data.employees) {
+    const jobs = data.repairs.filter(r => r.technician_id === e.id && OPEN.includes(r.status)).length;
     rows += `<tr><td>${esc(e.name)}</td><td>${esc(e.role)}</td><td>${esc(e.phone)}</td><td>${jobs}</td></tr>`;
   }
   drawPage("employees", "Employees", "Staff and how many open jobs each has.", `
@@ -482,15 +498,11 @@ function addEmployee(event) {
     document.getElementById("error").textContent = "Please enter a name.";
     return;
   }
-  PA.db.employees.push({
-    id: PA.nextId(PA.db.employees),
+  save(ownerApi("POST", "/employees", {
     name: form.empName.value.trim(),
     role: form.role.value,
-    phone: form.phone.value.trim(),
-    active: true
-  });
-  PA.save();
-  showPage();
+    phone: form.phone.value.trim()
+  }));
 }
 
 
@@ -498,7 +510,7 @@ function addEmployee(event) {
 
 function partsPage() {
   let rows = "";
-  for (const p of PA.db.parts) {
+  for (const p of data.parts) {
     const low = p.stock <= p.reorder ? ` <span class="tag tag-amber">Low</span>` : "";
     rows += `
       <tr>
@@ -531,11 +543,8 @@ function partsPage() {
 }
 
 function orderPart(id) {
-  const part = PA.by(PA.db.parts, "id", id);
-  part.stock = part.stock + 5;
-  PA.save();
-  alert("Ordered 5 more " + part.name + ".");
-  showPage();
+  const part = data.parts.find(p => p.id === id);
+  save(ownerApi("PATCH", "/parts/" + id, { stock: part.stock + 5 }), "Ordered 5 more " + part.name + ".");
 }
 
 function addNewPart(event) {
@@ -545,17 +554,14 @@ function addNewPart(event) {
     document.getElementById("error").textContent = "Please fill in every field.";
     return;
   }
-  PA.db.parts.push({
-    id: PA.nextId(PA.db.parts),
+  save(ownerApi("POST", "/parts", {
     name: form.partName.value.trim(),
     sku: form.sku.value.trim(),
     stock: Number(form.stock.value),
     reorder: Number(form.reorder.value),
     cost: Number(form.cost.value),
     price: Number(form.price.value)
-  });
-  PA.save();
-  showPage();
+  }));
 }
 
 
@@ -563,7 +569,7 @@ function addNewPart(event) {
 
 function servicesPage() {
   let rows = "";
-  for (const s of PA.db.services) {
+  for (const s of data.services) {
     rows += `<tr><td>${esc(s.name)}</td><td class="right">${s.hours}</td><td class="right">${money(s.price)}</td></tr>`;
   }
   drawPage("services", "Services", "The list customers book from.", `
@@ -592,43 +598,34 @@ function addNewService(event) {
     document.getElementById("error").textContent = "Please enter a name, price, and hours.";
     return;
   }
-
-  const checks = [];
-  for (const c of form.checks.value.split(",")) {
-    if (c.trim() !== "") checks.push(c.trim());
-  }
-
-  PA.db.services.push({
-    id: PA.nextId(PA.db.services),
+  save(ownerApi("POST", "/services", {
     name: form.serviceName.value.trim(),
     price: Number(form.price.value),
     hours: Number(form.hours.value),
-    checks: checks
-  });
-  PA.save();
-  showPage();
+    checklist: form.checks.value.trim()
+  }));
 }
 
 
 // ---------- Transactions ----------
 
 function transactionsPage() {
-  const list = PA.db.transactions.slice();
+  const list = data.transactions.slice();
   list.sort((a, b) => b.date.localeCompare(a.date));
 
   let rows = "";
   for (const t of list) {
-    const r = findRepair(t.repairId);
+    const r = findRepair(t.repair_id);
     const tagColor = t.status === "Paid" ? "green" : "amber";
     rows += `
       <tr>
         <td>#${t.id}</td>
         <td>${PA.shortDate(t.date)}</td>
-        <td><a class="link" href="#repair/${r.id}">#${r.id}</a></td>
-        <td>${esc(PA.customerName(customerFor(r)))}</td>
-        <td><span class="tag tag-${tagColor}">${t.status}</span></td>
-        <td class="right">${money(PA.totals(r).total)}</td>
-        <td class="right"><button class="btn btn-ghost btn-sm" onclick="PA.showInvoice(findRepair(${r.id}))">Invoice</button></td>
+        <td><a class="link" href="#repair/${t.repair_id}">#${t.repair_id}</a></td>
+        <td>${esc(r ? r.customer_name : "")}</td>
+        <td><span class="tag tag-${tagColor}">${esc(t.status)}</span></td>
+        <td class="right">${money(t.amount)}</td>
+        <td class="right"><button class="btn btn-ghost btn-sm" onclick="viewInvoice(${t.repair_id})">Invoice</button></td>
       </tr>`;
   }
   drawPage("transactions", "Transactions", "Invoices and payments.", `
@@ -639,56 +636,38 @@ function transactionsPage() {
 // ---------- Settings ----------
 
 function settingsPage() {
-  const s = PA.db.settings;
+  const s = PA.SHOP;
   drawPage("settings", "Settings", "Shop details shown to customers and on invoices.", `
-    <div class="grid-even">
-      <section class="card">
-        <form class="stack" style="gap:12px" onsubmit="saveSettings(event)">
-          <label class="field">Shop name<input name="shopName" value="${esc(s.shopName)}"></label>
-          <label class="field">Phone<input name="phone" value="${esc(s.phone)}"></label>
-          <label class="field">Address<input name="address" value="${esc(s.address)}"></label>
-          <label class="field">Hours<input name="hours" value="${esc(s.hours)}"></label>
-          <label class="field">Sales tax (%)<input name="taxRate" type="number" step="0.1" value="${s.taxRate}"></label>
-          <button class="btn">Save</button>
-        </form>
-      </section>
-      <section class="card">
-        <h2>Demo Data</h2>
-        <p class="muted" style="margin:8px 0 14px">Puts all the sample customers, repairs, and parts back to how they started.</p>
-        <button class="btn btn-danger" onclick="resetData()">Reset Demo Data</button>
-      </section>
-    </div>`);
-}
-
-function saveSettings(event) {
-  event.preventDefault();
-  const form = event.target;
-  const s = PA.db.settings;
-  s.shopName = form.shopName.value.trim();
-  s.phone = form.phone.value.trim();
-  s.address = form.address.value.trim();
-  s.hours = form.hours.value.trim();
-  s.taxRate = Number(form.taxRate.value);
-  PA.save();
-  alert("Settings saved.");
-}
-
-function resetData() {
-  if (confirm("Reset all demo data?")) {
-    PA.reset();
-    location.hash = "#overview";
-    showPage();
-  }
+    <section class="card stack">
+      <p><b>Shop name:</b> ${esc(s.name)}</p>
+      <p><b>Phone:</b> ${esc(s.phone)}</p>
+      <p><b>Address:</b> ${esc(s.address)}</p>
+      <p><b>Hours:</b> ${esc(s.hours)}</p>
+      <p><b>Sales tax:</b> ${s.taxRate}%</p>
+      <p class="muted">To change these, edit SHOP in web/shared/api.js. The tax rate is also set in api/repairs.js.</p>
+    </section>`);
 }
 
 
 // ---------- Pick which section to show ----------
 
-function showPage() {
+async function showPage() {
+  if (!PA.getToken("owner")) {
+    loginPage();
+    return;
+  }
+
+  try {
+    await loadData();
+  } catch (e) {
+    if (PA.getToken("owner")) PA.showMessage(e.message);
+    return;
+  }
+
   const parts = location.hash.slice(1).split("/");
   const section = parts[0];
 
-  if (section === "repair") repairDetailPage(Number(parts[1]));
+  if (section === "repair") await repairDetailPage(Number(parts[1]));
   else if (section === "repairs") repairsPage();
   else if (section === "customers") customersPage();
   else if (section === "vehicles") vehiclesPage();

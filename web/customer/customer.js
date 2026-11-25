@@ -1,7 +1,7 @@
 // Customer website.
 // Every customer HTML file has <body data-page="...">. This file reads that
 // value and builds the matching page inside <div id="root">.
-// All data comes from PA (web/shared/store.js).
+// Data comes from the API through PA.api (web/shared/api.js).
 
 const page = document.body.dataset.page;
 const root = document.getElementById("root");
@@ -13,49 +13,67 @@ const STEPS = ["Requested", "Scheduled", "In Progress", "Ready", "Completed"];
 const OPEN = ["Requested", "Scheduled", "In Progress", "Ready"];
 const TIMES = ["8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM"];
 
+// Filled in by loadData() from the API
+let data = { me: null, vehicles: [], repairs: [], services: [] };
+
+
+// ---------- Load from the API ----------
+
+async function loadData() {
+  const results = await Promise.all([
+    PA.api("GET", "/my/account", null, "customer"),
+    PA.api("GET", "/my/vehicles", null, "customer"),
+    PA.api("GET", "/my/repairs", null, "customer"),
+    PA.api("GET", "/services")
+  ]);
+  data = { me: results[0], vehicles: results[1], repairs: results[2], services: results[3] };
+}
+
 
 // ---------- Lookups ----------
 
 function me() {
-  return PA.by(PA.db.customers, "id", PA.db.session.customerId);
+  return data.me;
 }
 
 function myVehicles() {
-  return PA.db.vehicles.filter(v => v.customerId === me().id);
+  return data.vehicles;
 }
 
+// The first car added is the primary one
 function primaryVehicle() {
-  const list = myVehicles();
-  return list.find(v => v.primary) || list[0];
+  return data.vehicles[0];
 }
 
 function myRepairs() {
-  return PA.db.repairs.filter(r => r.customerId === me().id);
+  return data.repairs;
 }
 
 function myOpenRepairs() {
   const list = myRepairs().filter(r => OPEN.includes(r.status));
-  list.sort((a, b) => a.date.localeCompare(b.date));
+  list.sort((a, b) => a.appt_date.localeCompare(b.appt_date));
   return list;
 }
 
-function vehicleFor(repair) {
-  return PA.by(PA.db.vehicles, "vin", repair.vin);
-}
-
 function techFor(repair) {
-  const tech = PA.by(PA.db.employees, "id", repair.techId);
-  return tech ? tech.name : "Not assigned yet";
+  return repair.technician_name || "Not assigned yet";
 }
 
 function serviceNames(repair) {
-  const names = [];
-  for (const id of repair.services) {
-    const service = PA.by(PA.db.services, "id", id);
-    if (service) names.push(service.name);
-  }
-  if (names.length === 0) return "Service request";
-  return names.join(", ");
+  if (repair.services.length === 0) return "Service request";
+  return repair.services.map(s => s.name).join(", ");
+}
+
+function checksFor(service) {
+  if (!service.checklist) return [];
+  return service.checklist.split(",").map(c => {
+    c = c.trim();
+    return c.charAt(0).toUpperCase() + c.slice(1);
+  });
+}
+
+function miles(n) {
+  return (n || 0).toLocaleString();
 }
 
 
@@ -88,7 +106,7 @@ function drawPage(title, subtitle, content) {
           </div>
         </div>
         <div class="vehicle-chip-bottom">
-          <span>Odometer: ${vehicle.odometer.toLocaleString()} mi</span>
+          <span>Odometer: ${miles(vehicle.odometer)} mi</span>
           <span class="tag tag-dark">PRIMARY</span>
         </div>
       </div>`;
@@ -113,7 +131,7 @@ function drawPage(title, subtitle, content) {
             <div class="user-id">Client ID: #${me().id}</div>
           </div>
         </div>
-        <a class="switch-link" href="../owner/">Switch to owner view</a>
+        <a class="switch-link" href="#" onclick="logOut()">Log out</a>
       </aside>
       <main class="main">
         <header class="page-header">
@@ -125,6 +143,11 @@ function drawPage(title, subtitle, content) {
         ${content}
       </main>
     </div>`;
+}
+
+function logOut() {
+  PA.logout("customer");
+  location.href = "login.html";
 }
 
 
@@ -144,7 +167,7 @@ function dashboardPage() {
         <div class="alert-icon">${icons.wrench}</div>
         <div>
           <div class="alert-title">Your approval is needed</div>
-          <div class="alert-text">RO #${waiting.id}: the shop sent a photo of your ${esc(PA.vehicleName(vehicleFor(waiting)))}. Click to review it.</div>
+          <div class="alert-text">RO #${waiting.id}: the shop found extra work on your ${esc(waiting.vehicle_name)}. Click to review it.</div>
         </div>
       </a>`;
   }
@@ -152,8 +175,9 @@ function dashboardPage() {
   // Vehicle card and next service reminder
   let vehicleCard = `<section class="card"><p class="muted">You have no vehicles yet.</p><br><a class="btn" href="vehicle.html">Add a Vehicle</a></section>`;
   if (vehicle) {
-    const nextService = (Math.floor(vehicle.odometer / 5000) + 1) * 5000;
-    const milesLeft = nextService - vehicle.odometer;
+    const odometer = vehicle.odometer || 0;
+    const nextService = (Math.floor(odometer / 5000) + 1) * 5000;
+    const milesLeft = nextService - odometer;
     vehicleCard = `
       <section class="card">
         <div class="card-head">
@@ -167,9 +191,8 @@ function dashboardPage() {
           <div class="vehicle-img">${icons.truck}</div>
           <div>
             <div class="vehicle-name">${esc(PA.vehicleName(vehicle))}</div>
-            <div class="muted">${esc(vehicle.trim)}</div>
             <div class="vehicle-meta">
-              <span>Odometer: <b>${vehicle.odometer.toLocaleString()} mi</b></span>
+              <span>Odometer: <b>${miles(odometer)} mi</b></span>
               <span>Plate: <b>${esc(vehicle.plate)}</b></span>
             </div>
           </div>
@@ -193,9 +216,10 @@ function dashboardPage() {
     </section>`;
   if (upcoming) {
     let checks = "";
-    for (const id of upcoming.services) {
-      const service = PA.by(PA.db.services, "id", id);
-      for (const check of service.checks) {
+    for (const s of upcoming.services) {
+      const service = data.services.find(x => x.id === s.id);
+      if (!service) continue;
+      for (const check of checksFor(service)) {
         checks += `<li>${esc(check)}</li>`;
       }
     }
@@ -203,11 +227,11 @@ function dashboardPage() {
       <section class="card upcoming">
         <div class="card-head">
           <span class="eyebrow">Upcoming Service</span>
-          <span class="tag tag-blue">${PA.relative(upcoming.date)}</span>
+          <span class="tag tag-blue">${PA.relative(upcoming.appt_date)}</span>
         </div>
         <h2 class="upcoming-title">${esc(serviceNames(upcoming))}</h2>
-        <div class="upcoming-line">${icons.calendar}<span>${PA.date(upcoming.date)}, ${upcoming.time}</span></div>
-        <div class="upcoming-line">${icons.truck}<span>${esc(PA.vehicleName(vehicleFor(upcoming)))}</span></div>
+        <div class="upcoming-line">${icons.calendar}<span>${PA.date(upcoming.appt_date)}, ${PA.time(upcoming.appt_time)}</span></div>
+        <div class="upcoming-line">${icons.truck}<span>${esc(upcoming.vehicle_name)}</span></div>
         <div class="upcoming-line">${icons.user}<span>Technician: ${esc(techFor(upcoming))}</span></div>
         <hr>
         <div class="checks-title">Included Checks:</div>
@@ -216,17 +240,17 @@ function dashboardPage() {
         <div class="upcoming-foot">
           <div>
             <div class="small muted">Estimate before tax</div>
-            <div class="price">${money(PA.totals(upcoming).subtotal)}</div>
+            <div class="price">${money(upcoming.subtotal)}</div>
           </div>
           <a href="repair.html?id=${upcoming.id}" class="btn">View Details</a>
         </div>
       </section>`;
   }
 
-  const phone = PA.db.settings.phone.replace(/\D/g, "");
-  const mapLink = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(PA.db.settings.address);
+  const phone = PA.SHOP.phone.replace(/\D/g, "");
+  const mapLink = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(PA.SHOP.address);
 
-  drawPage("Dashboard", `Welcome back, ${esc(me().first)}!`, `
+  drawPage("Dashboard", `Welcome back, ${esc(me().first_name)}!`, `
     <div class="grid">
       <div class="col">
         ${alertBox}
@@ -279,24 +303,25 @@ function repairPage() {
   }
   timeline += `</ol>`;
 
-  // Photos the shop sent for approval
+  // Extra work the shop sent for approval
   let approvals = "";
   for (const a of repair.approvals) {
     let buttons = "";
     if (a.status === "pending") {
       buttons = `
         <div class="row">
-          <button class="btn" onclick="decide(${repair.id}, ${a.id}, 'approved')">Approve</button>
-          <button class="btn btn-ghost" onclick="decide(${repair.id}, ${a.id}, 'declined')">Decline</button>
+          <button class="btn" onclick="decide(${a.id}, 'approved')">Approve</button>
+          <button class="btn btn-ghost" onclick="decide(${a.id}, 'declined')">Decline</button>
         </div>`;
     } else if (a.status === "approved") {
       buttons = `<span class="tag tag-green">Approved</span>`;
     } else {
       buttons = `<span class="tag tag-red">Declined</span>`;
     }
+    const photo = a.photo_url ? `<img src="${esc(a.photo_url)}" alt="Photo: ${esc(a.title)}">` : "";
     approvals += `
       <div class="approval">
-        <img src="${esc(a.photo)}" alt="Photo: ${esc(a.title)}">
+        ${photo}
         <div class="approval-body">
           <div class="row between"><b>${esc(a.title)}</b><span class="price">${money(a.price)}</span></div>
           <p class="muted">${esc(a.note)}</p>
@@ -307,14 +332,12 @@ function repairPage() {
   if (approvals === "") approvals = `<p class="muted">The shop has not sent any photos.</p>`;
 
   // Estimate
-  const totals = PA.totals(repair);
   let rows = "";
-  for (const item of totals.items) {
+  for (const item of PA.lineItems(repair)) {
     rows += `<tr><td>${esc(item.label)}</td><td class="right">${money(item.amount)}</td></tr>`;
   }
 
-  const vehicle = vehicleFor(repair);
-  drawPage(`Repair Order #${repair.id}`, `${esc(PA.vehicleName(vehicle))}, ${esc(vehicle.plate)}`, `
+  drawPage(`Repair Order #${repair.id}`, `${esc(repair.vehicle_name)}, ${esc(repair.vehicle_plate)}`, `
     <div class="stack">
       ${otherLinks ? `<p class="muted">Other open orders: ${otherLinks}</p>` : ""}
       <section class="card">
@@ -336,26 +359,23 @@ function repairPage() {
           <tbody>${rows}</tbody>
         </table>
         <div class="totals">
-          <div><span>Subtotal</span><span>${money(totals.subtotal)}</span></div>
-          <div><span>Tax</span><span>${money(totals.tax)}</span></div>
-          <div class="grand"><span>Total</span><span>${money(totals.total)}</span></div>
+          <div><span>Subtotal</span><span>${money(repair.subtotal)}</span></div>
+          <div><span>Tax</span><span>${money(repair.tax)}</span></div>
+          <div class="grand"><span>Total</span><span>${money(repair.total)}</span></div>
         </div>
       </section>
     </div>`);
 }
 
-function decide(repairId, approvalId, choice) {
-  const repair = PA.by(PA.db.repairs, "id", repairId);
-  const approval = PA.by(repair.approvals, "id", approvalId);
-  approval.status = choice;
-  PA.save();
-
-  if (choice === "approved") {
-    alert("Approved. The shop will start the work.");
-  } else {
-    alert("Declined. The shop will not do this work.");
+async function decide(approvalId, choice) {
+  try {
+    await PA.api("PATCH", "/my/approvals/" + approvalId, { status: choice }, "customer");
+    if (choice === "approved") alert("Approved. The shop will start the work.");
+    else alert("Declined. The shop will not do this work.");
+    await start();
+  } catch (e) {
+    alert(e.message);
   }
-  repairPage();
 }
 
 
@@ -371,7 +391,7 @@ function bookPage() {
 
   let vehicleOptions = "";
   for (const v of vehicles) {
-    vehicleOptions += `<option value="${esc(v.vin)}">${esc(PA.vehicleName(v))}, ${esc(v.plate)}</option>`;
+    vehicleOptions += `<option value="${v.id}">${esc(PA.vehicleName(v))}, ${esc(v.plate)}</option>`;
   }
 
   let timeOptions = "";
@@ -380,11 +400,11 @@ function bookPage() {
   }
 
   let serviceBoxes = "";
-  for (const s of PA.db.services) {
+  for (const s of data.services) {
     serviceBoxes += `
       <label class="option">
         <input type="checkbox" name="service" value="${s.id}" onchange="updateTotal()">
-        <span><b>${esc(s.name)}</b>${esc(s.checks.join(", "))}</span>
+        <span><b>${esc(s.name)}</b>${esc(s.checklist)}</span>
         <span class="price-sm">${money(s.price)}</span>
       </label>`;
   }
@@ -395,7 +415,7 @@ function bookPage() {
         <section class="card stack">
           <h2>Vehicle and Time</h2>
           <div class="form-grid">
-            <label class="field span-2">Vehicle<select name="vin">${vehicleOptions}</select></label>
+            <label class="field span-2">Vehicle<select name="vehicle">${vehicleOptions}</select></label>
             <label class="field">Date<input type="date" name="date"></label>
             <label class="field">Time<select name="time">${timeOptions}</select></label>
             <label class="field span-2">What is going on? (optional)<textarea name="concern" rows="3"></textarea></label>
@@ -410,7 +430,7 @@ function bookPage() {
         <h2>Summary</h2>
         <p class="small muted" style="margin:10px 0 4px">Estimate before tax</p>
         <div class="price" id="total">$0.00</div>
-        <p class="small muted" style="margin:4px 0 12px">Shop hours: ${esc(PA.db.settings.hours)}</p>
+        <p class="small muted" style="margin:4px 0 12px">Shop hours: ${esc(PA.SHOP.hours)}</p>
         <p class="error" id="error"></p>
         <button class="btn" style="width:100%">Request Appointment</button>
       </section>
@@ -429,12 +449,12 @@ function checkedServices() {
 function updateTotal() {
   let total = 0;
   for (const id of checkedServices()) {
-    total += PA.by(PA.db.services, "id", id).price;
+    total += data.services.find(s => s.id === id).price;
   }
   document.getElementById("total").textContent = money(total);
 }
 
-function submitBooking(event) {
+async function submitBooking(event) {
   event.preventDefault();
   const form = event.target;
   const error = document.getElementById("error");
@@ -454,23 +474,19 @@ function submitBooking(event) {
     return;
   }
 
-  PA.db.repairs.push({
-    id: PA.nextId(PA.db.repairs),
-    customerId: me().id,
-    vin: form.vin.value,
-    status: "Requested",
-    techId: null,
-    concern: concern,
-    date: form.date.value,
-    time: form.time.value,
-    services: services,
-    parts: [],
-    approvals: []
-  });
-  PA.save();
-
-  alert("Your request was sent. The shop will confirm it soon.");
-  location.href = "index.html";
+  try {
+    await PA.api("POST", "/my/repairs", {
+      vehicle_id: Number(form.vehicle.value),
+      appt_date: form.date.value,
+      appt_time: form.time.value,
+      concern: concern,
+      service_ids: services
+    }, "customer");
+    alert("Your request was sent. The shop will confirm it soon.");
+    location.href = "index.html";
+  } catch (e) {
+    error.textContent = e.message;
+  }
 }
 
 
@@ -478,17 +494,17 @@ function submitBooking(event) {
 
 function historyPage() {
   const done = myRepairs().filter(r => r.status === "Completed");
-  done.sort((a, b) => b.date.localeCompare(a.date));
+  done.sort((a, b) => b.appt_date.localeCompare(a.appt_date));
 
   let rows = "";
   for (const r of done) {
     rows += `
       <tr>
-        <td>${PA.shortDate(r.date)}</td>
+        <td>${PA.shortDate(r.appt_date)}</td>
         <td>#${r.id}</td>
-        <td>${esc(PA.vehicleName(vehicleFor(r)))}</td>
+        <td>${esc(r.vehicle_name)}</td>
         <td>${esc(serviceNames(r))}</td>
-        <td class="right">${money(PA.totals(r).total)}</td>
+        <td class="right">${money(r.total)}</td>
         <td class="right"><button class="btn btn-ghost btn-sm" onclick="showInvoice(${r.id})">Invoice</button></td>
       </tr>`;
   }
@@ -508,7 +524,7 @@ function historyPage() {
 }
 
 function showInvoice(repairId) {
-  PA.showInvoice(PA.by(PA.db.repairs, "id", repairId));
+  PA.showInvoice(myRepairs().find(r => r.id === repairId));
 }
 
 
@@ -517,20 +533,17 @@ function showInvoice(repairId) {
 function vehiclePage() {
   let cards = "";
   for (const v of myVehicles()) {
-    const visits = myRepairs().filter(r => r.vin === v.vin && r.status === "Completed").length;
+    const visits = myRepairs().filter(r => r.vehicle_id === v.id && r.status === "Completed").length;
     cards += `
       <section class="card">
         <div class="card-head">
-          <div>
-            <h2>${esc(PA.vehicleName(v))}</h2>
-            <p class="muted">${esc(v.trim)}</p>
-          </div>
-          ${v.primary ? `<span class="tag tag-blue">Primary</span>` : ""}
+          <h2>${esc(PA.vehicleName(v))}</h2>
+          ${v === primaryVehicle() ? `<span class="tag tag-blue">Primary</span>` : ""}
         </div>
         <div class="vehicle-meta">
           <span>VIN: <b>${esc(v.vin)}</b></span>
           <span>Plate: <b>${esc(v.plate)}</b></span>
-          <span>Odometer: <b>${v.odometer.toLocaleString()} mi</b></span>
+          <span>Odometer: <b>${miles(v.odometer)} mi</b></span>
           <span>Visits: <b>${visits}</b></span>
         </div>
       </section>`;
@@ -558,7 +571,7 @@ function vehiclePage() {
     </div>`);
 }
 
-function addVehicle(event) {
+async function addVehicle(event) {
   event.preventDefault();
   const form = event.target;
   const error = document.getElementById("error");
@@ -568,30 +581,60 @@ function addVehicle(event) {
     error.textContent = "A VIN must be 17 characters.";
     return;
   }
-  if (PA.by(PA.db.vehicles, "vin", vin)) {
-    error.textContent = "That VIN is already on file.";
-    return;
-  }
   if (form.year.value === "" || form.make.value.trim() === "" || form.model.value.trim() === "" || form.odometer.value === "") {
     error.textContent = "Please fill in the year, make, model, and odometer.";
     return;
   }
 
-  PA.db.vehicles.push({
-    vin: vin,
-    customerId: me().id,
-    year: Number(form.year.value),
-    make: form.make.value.trim(),
-    model: form.model.value.trim(),
-    trim: "",
-    plate: form.plate.value.trim() || "Not provided",
-    odometer: Number(form.odometer.value),
-    primary: myVehicles().length === 0
-  });
-  PA.save();
+  try {
+    await PA.api("POST", "/my/vehicles", {
+      vin: vin,
+      year: Number(form.year.value),
+      make: form.make.value.trim(),
+      model: form.model.value.trim(),
+      plate: form.plate.value.trim() || "Not provided",
+      odometer: Number(form.odometer.value)
+    }, "customer");
+    alert("Vehicle added.");
+    await start();
+  } catch (e) {
+    error.textContent = e.message === "That already exists" ? "That VIN is already on file." : e.message;
+  }
+}
 
-  alert("Vehicle added.");
-  vehiclePage();
+
+// ---------- Log In ----------
+
+function loginPage() {
+  root.innerHTML = `
+    <main class="center-page">
+      <section class="card">
+        <h1>Log In</h1>
+        <p class="muted">Penguin Auto Specialists</p>
+        <form class="stack" style="margin-top:16px;gap:12px" onsubmit="logIn(event)">
+          <label class="field">Email<input name="email" type="email"></label>
+          <label class="field">Password<input name="password" type="password"></label>
+          <p class="error" id="error"></p>
+          <button class="btn">Log In</button>
+        </form>
+        <p class="muted" style="margin-top:14px">New here? <a class="link" href="register.html">Create an account</a></p>
+      </section>
+    </main>`;
+}
+
+async function logIn(event) {
+  event.preventDefault();
+  const form = event.target;
+  try {
+    const result = await PA.api("POST", "/login", {
+      email: form.email.value.trim(),
+      password: form.password.value
+    });
+    PA.setToken("customer", result.token);
+    location.href = "index.html";
+  } catch (e) {
+    document.getElementById("error").textContent = e.message;
+  }
 }
 
 
@@ -610,14 +653,16 @@ function registerPage() {
           </div>
           <label class="field">Phone<input name="phone" type="tel"></label>
           <label class="field">Email<input name="email" type="email"></label>
+          <label class="field">Password<input name="password" type="password"></label>
           <p class="error" id="error"></p>
           <button class="btn">Create Account</button>
         </form>
+        <p class="muted" style="margin-top:14px">Already have an account? <a class="link" href="login.html">Log in</a></p>
       </section>
     </main>`;
 }
 
-function createAccount(event) {
+async function createAccount(event) {
   event.preventDefault();
   const form = event.target;
   const error = document.getElementById("error");
@@ -625,8 +670,9 @@ function createAccount(event) {
   const last = form.last.value.trim();
   const phone = form.phone.value.trim();
   const email = form.email.value.trim();
+  const password = form.password.value;
 
-  if (first === "" || last === "" || phone === "" || email === "") {
+  if (first === "" || last === "" || phone === "" || email === "" || password === "") {
     error.textContent = "Please fill in every field.";
     return;
   }
@@ -634,22 +680,48 @@ function createAccount(event) {
     error.textContent = "Please enter a valid email.";
     return;
   }
+  if (password.length < 6) {
+    error.textContent = "Password must be at least 6 characters.";
+    return;
+  }
 
-  const id = PA.nextId(PA.db.customers);
-  PA.db.customers.push({ id: id, first: first, last: last, phone: phone, email: email });
-  PA.db.session.customerId = id;
-  PA.save();
-
-  // New customers add their vehicle next
-  location.href = "vehicle.html";
+  try {
+    const result = await PA.api("POST", "/register", {
+      first_name: first, last_name: last, phone: phone, email: email, password: password
+    });
+    PA.setToken("customer", result.token);
+    // New customers add their vehicle next
+    location.href = "vehicle.html";
+  } catch (e) {
+    error.textContent = e.message;
+  }
 }
 
 
 // ---------- Pick which page to draw ----------
 
-if (page === "dashboard") dashboardPage();
-else if (page === "repair") repairPage();
-else if (page === "book") bookPage();
-else if (page === "history") historyPage();
-else if (page === "vehicle") vehiclePage();
-else if (page === "register") registerPage();
+async function start() {
+  if (page === "login") return loginPage();
+  if (page === "register") return registerPage();
+
+  // Every other page needs a login
+  if (!PA.getToken("customer")) {
+    location.href = "login.html";
+    return;
+  }
+
+  try {
+    await loadData();
+  } catch (e) {
+    PA.showMessage(e.message);
+    return;
+  }
+
+  if (page === "dashboard") dashboardPage();
+  else if (page === "repair") repairPage();
+  else if (page === "book") bookPage();
+  else if (page === "history") historyPage();
+  else if (page === "vehicle") vehiclePage();
+}
+
+start();
